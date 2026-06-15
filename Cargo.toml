@@ -1,0 +1,32 @@
+[package]
+name = "bmrc"
+version = "0.1.0"
+edition = "2024"
+description = "Bitwise Mixing Range Coder"
+license = "GPL-3"
+authors = ["meltedkeyboard"]
+readme = "README.md"
+keywords = ["compression", "lossless", "context-mixing", "arithmetic-coding"]
+categories = ["compression"]
+
+[lib]
+name = "bmrc"
+path = "src/lib.rs"
+
+[[bin]]
+name = "bmrc"
+path = "src/bin/bmrc.rs"
+
+[dependencies]
+
+[dev-dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.bench]
+opt-level = 3
+lto = true

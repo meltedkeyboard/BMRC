@@ -1,0 +1,34 @@
+he BMRC compression project explores how far a small ensemble of adaptive
+statistical models can push the limits of lossless data compression. Instead
+of relying on a single dictionary search, the system combines several
+context models of different orders, a long range match model, and a small
+online trained mixer that learns, while the file is being processed, which
+of those models deserves the most trust at any given moment.
+
+Early experiments on plain text, source code, and structured log files
+suggest that this kind of adaptive mixing captures regularities that simple
+dictionary based compressors tend to miss. Repeated phrases, common words,
+indentation patterns, and predictable punctuation all leave statistical
+traces that the mixer can exploit, even when the exact same byte sequence
+has not been seen before.
+
+The long term goal of the project is to provide a practical middle ground
+between very fast general purpose compressors and the extremely slow but
+extremely effective compressors used in academic benchmarks. A user should
+be able to pick a single number from one to ten and get a predictable trade
+off between speed and the size of the resulting archive, without needing to
+understand the details of context mixing, match models, or adaptive
+probability maps.
+
+The quick brown fox jumps over the lazy dog. The quick brown fox jumps over
+the lazy dog again, and again, because repetition is exactly the kind of
+pattern that a good compressor should learn to predict almost perfectly
+after only a handful of repetitions. Once the pattern is learned, encoding
+each additional repetition should cost only a tiny fraction of a bit.
+
+In addition to natural language text, the test suite also exercises binary
+data, including small integers encoded in little endian order, occasional
+marker bytes, and pseudo random sequences that are not expected to compress
+well at all. A robust compressor must handle all three cases correctly: it
+should shrink text and structured binary data substantially, while never
+expanding incompressible data by more than a small, fixed header.
