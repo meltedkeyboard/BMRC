@@ -1,13 +1,13 @@
-# bmrc-compress
+# [bmrc](https://crates.io/crates/bmrc)
 
-`bmrc-compress` is a pure-Rust, dependency-free, lossless general-purpose
+`bmrc` is a pure-Rust, dependency-free, lossless general-purpose
 compression library built around **adaptive context mixing (ACM)**: a small
 ensemble of order-N statistical models and a long-range LZP-style match
 model feed an online-trained logistic mixer, whose output (optionally
 refined by SSE/APM stages) drives a binary range coder.
 
 ```rust
-use bmrc_compress::{compress, decompress};
+use bmrc::{compress, decompress};
 
 let data = b"hello hello hello hello world world world".repeat(10);
 let compressed = compress(&data, 6);          // level 1 (fast) .. 10 (max)
@@ -83,13 +83,13 @@ As with any adaptive/PAQ-style compressor, **decompression takes the same
 amount of work as compression** (the decoder re-runs the full model), unlike
 LZ-family formats where decoding is much cheaper than encoding.
 
-## Container format (`.nxs`)
+## Container format (`.bmrc`)
 
 A BMRC stream is a 14-byte header followed by a payload:
 
 ```
 Offset  Size  Field
-0       4     Magic "NXC1"
+0       4     Magic "BMR1"
 4       1     Level (1-10)
 5       1     Flags (bit 0 = stored verbatim, no entropy coding)
 6       8     Original length, little-endian u64
@@ -161,14 +161,14 @@ Add to `Cargo.toml`:
 Then:
 
 ```rust
-use bmrc_compress::{compress, decompress, MIN_LEVEL, MAX_LEVEL};
+use bmrc::{compress, decompress, MIN_LEVEL, MAX_LEVEL};
 
 fn pack(data: &[u8], user_level: u8) -> Vec<u8> {
     let level = user_level.clamp(MIN_LEVEL, MAX_LEVEL);
     compress(data, level)
 }
 
-fn unpack(data: &[u8]) -> Result<Vec<u8>, bmrc_compress::BmrcError> {
+fn unpack(data: &[u8]) -> Result<Vec<u8>, bmrc::BmrcError> {
     decompress(data)
 }
 ```
@@ -176,7 +176,7 @@ fn unpack(data: &[u8]) -> Result<Vec<u8>, bmrc_compress::BmrcError> {
 For a container format / archiver, store the result of `compress` as an
 opaque blob per entry (it is already self-describing - the level and
 original length are recoverable from the header via
-`bmrc_compress::format::Header::read`).
+`bmrc::format::Header::read`).
 
 ## Roadmap
 
