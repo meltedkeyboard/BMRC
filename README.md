@@ -18,9 +18,42 @@ assert_eq!(restored, data);
 ## CLI
 
 ```text
-cargo run --release --bin bmrc -- c <level 1-10> <input> <output>   # compress
-cargo run --release --bin bmrc -- d <input> <output>                # decompress
-cargo run --release --bin bmrc -- info <input>                      # show header
+cargo run --release --bin bmrc -- c  <level 1-10> <input> <output>             # compress
+cargo run --release --bin bmrc -- d  <input> <output>                          # decompress
+cargo run --release --bin bmrc -- cp <level 1-10> <block_kb> <input> <output>  # compress in parallel
+cargo run --release --bin bmrc -- dp <input> <output>                          # decompress parallel stream
+cargo run --release --bin bmrc -- info <input>                                 # show header
+```
+
+## Parallel compression
+
+`cp` / `dp` split the input into independent blocks and compress (or decompress)
+each block on a separate OS thread, writing a `.bmrp` container:
+
+```rust
+use bmrc::{compress_parallel, decompress_parallel};
+
+let data = b"hello hello hello".repeat(10_000);
+
+// 256 KB blocks (pass Some(n) to override)
+let compressed = compress_parallel(&data, 6, None);
+let restored   = decompress_parallel(&compressed).unwrap();
+assert_eq!(restored, data);
+```
+
+Because each block is an independent BMRC stream the predictor resets at every
+block boundary, so compression ratio decreases as block size shrinks. 256 KB
+(`DEFAULT_BLOCK_SIZE`) is a reasonable default; adjust to match your CPU count
+and data size.
+
+### `.bmrp` container format
+
+```text
+Offset    Size      Field
+0         4         Magic "BMRP"
+4         4         Block count N (u32 LE)
+8         4 * N     Block payload sizes in bytes (u32 LE each)
+8 + 4*N   ...       Block payloads -- each is a complete .bmrc stream
 ```
 
 ## How it works
@@ -189,4 +222,11 @@ original length are recoverable from the header via
       binary range coder for the lower compression levels.
 - [ ] SIMD-accelerated table lookups / mixing for higher throughput at high
       levels.
-- [ ] Multi-threaded block-parallel compression.
+
+## Implemented
+
+- [x] **Multi-threaded block-parallel compression** (v0.2.0): `compress_parallel`
+      and `decompress_parallel` split the input into fixed-size blocks and process
+      each block on a separate OS thread. No external dependencies: implemented
+      with `std::thread::scope`. See the "Parallel compression" section above for
+      usage and the `.bmrp` container format specification.

@@ -37,11 +37,13 @@
 pub mod error;
 pub mod format;
 pub mod levels;
+pub mod parallel;
 pub mod predictor;
 pub mod range_coder;
 
 pub use error::BmrcError;
 pub use levels::{config_for_level, estimated_memory_bytes, LevelConfig};
+pub use parallel::{compress_parallel, decompress_parallel, DEFAULT_BLOCK_SIZE, PARALLEL_MAGIC};
 
 use predictor::Predictor;
 use range_coder::{Decoder, Encoder};
