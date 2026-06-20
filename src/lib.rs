@@ -15,7 +15,7 @@
 //! Higher levels use more models and usually produce smaller files,
 //! but compression is much slower.
 //!
-//! ExampleЖ
+//! Example:
 //!
 //! ```
 //! use bmrc::{compress, decompress};
@@ -27,13 +27,12 @@
 //! assert!(compressed.len() < data.len());
 //! ```
 //!
-//! BMRC implements the adaptive context mixing and entropy coding
-//! parts of the original design. Some planned features are not
-//! included yet. For example, hierarchical dictionaries and BWT
-//! preprocessing are still future work. The current match model
-//! already helps find repeated data over long distances.
-//! More details are available in `README.md`.
+//! A BWT pre-pass is available via [`compress_bwt`]. It reorders bytes to
+//! cluster equal values before entropy coding, which can improve ratio on
+//! text and structured binary data. The standard [`decompress`] detects and
+//! reverses the BWT automatically.
 
+pub mod bwt;
 pub mod error;
 pub mod format;
 pub mod levels;
@@ -48,7 +47,7 @@ pub use parallel::{compress_parallel, decompress_parallel, DEFAULT_BLOCK_SIZE, P
 use predictor::Predictor;
 use range_coder::{Decoder, Encoder};
 
-pub use format::{Header, FLAG_STORED, HEADER_LEN, MAGIC};
+pub use format::{Header, FLAG_BWT, FLAG_STORED, HEADER_LEN, MAGIC};
 
 
 pub const MIN_LEVEL: u8 = 1; /// fastest, weakest model
@@ -72,7 +71,7 @@ pub fn compress(data: &[u8], level: u8) -> Vec<u8> {
             flags: FLAG_STORED,
             original_len: data.len() as u64,
         }
-        .write(&mut out);
+            .write(&mut out);
         out.extend_from_slice(data);
         out
     } else {
@@ -82,13 +81,54 @@ pub fn compress(data: &[u8], level: u8) -> Vec<u8> {
             flags: 0,
             original_len: data.len() as u64,
         }
-        .write(&mut out);
+            .write(&mut out);
         out.extend_from_slice(&payload);
         out
     }
 }
 
-/// Decompresses a `.bmrc` byte stream created by [`compress`].
+/// Compresses `data` with a BWT pre-pass and returns a `.bmrc` byte stream.
+///
+/// The Burrows-Wheeler Transform reorders bytes so that equal bytes cluster
+/// together, which improves prediction accuracy for the context models that
+/// follow. On text and structured binary data this typically yields a better
+/// ratio than [`compress`] alone.
+///
+/// The BWT primary index (4 bytes) is prepended to the payload and the
+/// [`FLAG_BWT`] bit is set in the header. [`decompress`] detects the flag
+/// and inverts the BWT automatically; no separate decompress function is
+/// needed.
+///
+/// Falls back to plain [`compress`] when the BWT pre-pass does not reduce
+/// the output size.
+pub fn compress_bwt(data: &[u8], level: u8) -> Vec<u8> {
+    let level = level.clamp(MIN_LEVEL, MAX_LEVEL);
+
+    if data.is_empty() {
+        return compress(data, level);
+    }
+
+    let (bwt_data, primary_idx) = bwt::bwt_encode(data);
+    let payload = encode_payload(&bwt_data, level);
+
+    // 4 extra bytes for the primary index stored in the payload.
+    if payload.len() + 4 >= data.len() {
+        return compress(data, level);
+    }
+
+    let mut out = Vec::with_capacity(HEADER_LEN + 4 + payload.len());
+    Header {
+        level,
+        flags: FLAG_BWT,
+        original_len: data.len() as u64,
+    }
+        .write(&mut out);
+    out.extend_from_slice(&primary_idx.to_le_bytes());
+    out.extend_from_slice(&payload);
+    out
+}
+
+/// Decompresses a `.bmrc` byte stream created by [`compress`] or [`compress_bwt`].
 ///
 /// # Errors
 ///
@@ -104,6 +144,16 @@ pub fn decompress(data: &[u8]) -> Result<Vec<u8>, BmrcError> {
             return Err(BmrcError::Truncated);
         }
         return Ok(payload[..n].to_vec());
+    }
+
+    if header.flags & FLAG_BWT != 0 {
+        // First 4 payload bytes are the BWT primary index.
+        if payload.len() < 4 {
+            return Err(BmrcError::Truncated);
+        }
+        let primary_idx = u32::from_le_bytes(payload[..4].try_into().unwrap());
+        let bwt_data = decode_payload(&payload[4..], header.level, header.original_len as usize);
+        return Ok(bwt::bwt_decode(&bwt_data, primary_idx));
     }
 
     Ok(decode_payload(payload, header.level, header.original_len as usize))
@@ -210,5 +260,29 @@ mod tests {
     fn header_too_short_errors() {
         let err = decompress(b"NX").unwrap_err();
         assert_eq!(err, BmrcError::HeaderTooShort);
+    }
+
+    #[test]
+    fn bwt_compress_roundtrip_text() {
+        let data = b"the quick brown fox jumps over the lazy dog. ".repeat(50);
+        for level in [1u8, 5, 10] {
+            let c = compress_bwt(&data, level);
+            let d = decompress(&c).unwrap();
+            assert_eq!(d, data.as_slice(), "BWT roundtrip failed at level {level}");
+        }
+    }
+
+    #[test]
+    fn bwt_compress_falls_back_for_incompressible_data() {
+        // Random-ish data: BWT pre-pass should not help, expect plain compress output.
+        let mut data = vec![0u8; 200];
+        let mut x: u32 = 0xCAFEBABE;
+        for b in data.iter_mut() {
+            x = x.wrapping_mul(1664525).wrapping_add(1013904223);
+            *b = (x >> 24) as u8;
+        }
+        let c = compress_bwt(&data, 5);
+        let d = decompress(&c).unwrap();
+        assert_eq!(d, data);
     }
 }

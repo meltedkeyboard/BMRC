@@ -1,9 +1,15 @@
-use bmrc::{compress, decompress};
+use bmrc::{compress, compress_bwt, decompress};
 
 fn check_roundtrip(data: &[u8], level: u8) {
     let compressed = compress(data, level);
     let restored = decompress(&compressed).expect("decompress should succeed");
     assert_eq!(restored, data, "roundtrip mismatch at level {level}");
+}
+
+fn check_bwt_roundtrip(data: &[u8], level: u8) {
+    let compressed = compress_bwt(data, level);
+    let restored = decompress(&compressed).expect("bwt decompress should succeed");
+    assert_eq!(restored, data, "BWT roundtrip mismatch at level {level}");
 }
 
 #[test]
@@ -87,4 +93,34 @@ fn level_increases_compression_on_text() {
         c10 <= c1,
         "level 10 ({c10}) should compress at least as well as level 1 ({c1})"
     );
+}
+
+#[test]
+fn bwt_empty_all_levels() {
+    for level in 1..=10u8 {
+        check_bwt_roundtrip(b"", level);
+    }
+}
+
+#[test]
+fn bwt_single_byte_all_levels() {
+    for level in 1..=10u8 {
+        check_bwt_roundtrip(b"Z", level);
+    }
+}
+
+#[test]
+fn bwt_repetitive_text_all_levels() {
+    let data = b"the quick brown fox jumps over the lazy dog. ".repeat(200);
+    for level in 1..=10u8 {
+        check_bwt_roundtrip(&data, level);
+    }
+}
+
+#[test]
+fn bwt_english_text_selected_levels() {
+    let data = include_str!("sample.txt").as_bytes();
+    for level in [1u8, 3, 6, 10] {
+        check_bwt_roundtrip(data, level);
+    }
 }

@@ -17,8 +17,14 @@ use crate::error::BmrcError;
 
 pub const MAGIC: [u8; 4] = *b"BMR1";
 
-/// Flag bit: payload is stored as-is
+/// Flag bit: payload is stored as-is (no entropy coding)
 pub const FLAG_STORED: u8 = 0x01;
+
+/// Flag bit: BWT pre-pass was applied before entropy coding.
+///
+/// When set, the first 4 bytes of the payload hold the BWT primary index
+/// (little-endian u32), followed by the entropy-coded BWT output.
+pub const FLAG_BWT: u8 = 0x02;
 
 /// Total size of the container header in bytes
 pub const HEADER_LEN: usize = 14;

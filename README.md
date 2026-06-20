@@ -7,12 +7,17 @@ model feed an online-trained logistic mixer, whose output (optionally
 refined by SSE/APM stages) drives a binary range coder.
 
 ```rust
-use bmrc::{compress, decompress};
+use bmrc::{compress, compress_bwt, decompress};
 
 let data = b"hello hello hello hello world world world".repeat(10);
 let compressed = compress(&data, 6);          // level 1 (fast) .. 10 (max)
 let restored = decompress(&compressed).unwrap();
 assert_eq!(restored, data);
+
+// BWT pre-pass: reorders bytes before entropy coding, often improves ratio on text
+let compressed_bwt = compress_bwt(&data, 6);
+let restored_bwt = decompress(&compressed_bwt).unwrap();
+assert_eq!(restored_bwt, data);
 ```
 
 ## CLI
@@ -20,6 +25,7 @@ assert_eq!(restored, data);
 ```text
 cargo run --release --bin bmrc -- c  <level 1-10> <input> <output>             # compress
 cargo run --release --bin bmrc -- d  <input> <output>                          # decompress
+cargo run --release --bin bmrc -- cb <level 1-10> <input> <output>             # compress with BWT pre-pass
 cargo run --release --bin bmrc -- cp <level 1-10> <block_kb> <input> <output>  # compress in parallel
 cargo run --release --bin bmrc -- dp <input> <output>                          # decompress parallel stream
 cargo run --release --bin bmrc -- info <input>                                 # show header
@@ -124,10 +130,14 @@ A BMRC stream is a 14-byte header followed by a payload:
 Offset  Size  Field
 0       4     Magic "BMR1"
 4       1     Level (1-10)
-5       1     Flags (bit 0 = stored verbatim, no entropy coding)
+5       1     Flags (bit 0 = stored verbatim, no entropy coding; bit 1 = BWT pre-pass applied)
 6       8     Original length, little-endian u64
 14      ..    Payload (range-coder bitstream, or raw bytes if "stored")
 ```
+
+When the BWT flag (bit 1) is set the first 4 bytes of the payload hold the BWT primary index
+(little-endian u32), followed by the entropy-coded BWT output. [`decompress`] detects and
+inverts the BWT automatically.
 
 If the modeled output would not be smaller than the input (e.g. for
 already-compressed, encrypted, or random data), `compress` automatically
@@ -213,7 +223,6 @@ original length are recoverable from the header via
 
 ## Roadmap
 
-- [ ] Enhanced BWT + QLFC transform as an optional pre-pass for large blocks.
 - [ ] Hierarchical dictionary system (global static dictionary + per-file
       trained dictionary) to better handle large exact repeats.
 - [ ] SA-IS suffix array construction and an optimal (DP-based) LZ parser as
@@ -230,3 +239,10 @@ original length are recoverable from the header via
       each block on a separate OS thread. No external dependencies: implemented
       with `std::thread::scope`. See the "Parallel compression" section above for
       usage and the `.bmrp` container format specification.
+
+- [x] **BWT pre-pass** (v0.3.0): `compress_bwt` applies a Burrows-Wheeler
+      Transform before entropy coding. The BWT reorders bytes so that equal bytes
+      cluster together. The BWT primary index (4 bytes) is stored at the start of
+      the payload and `FLAG_BWT` is set in the header flags. The standard `decompress`
+      detects the flag and inverts the BWT automatically. Falls back to plain `compress`
+      when the pre-pass does not reduce output size. CLI: `bmrc cb <level> <input> <output>`.

@@ -5,13 +5,14 @@ use std::fs;
 use std::process::ExitCode;
 use std::time::Instant;
 
-use bmrc::{compress, decompress, compress_parallel, decompress_parallel, format::Header};
+use bmrc::{compress, compress_bwt, compress_parallel, decompress, decompress_parallel, format::Header};
 
 fn usage(program: &str) -> String {
     format!(
         "Usage:\n  \
          {program} c  <level 1-10> <input> <output>             Compress\n  \
          {program} d  <input> <output>                          Decompress\n  \
+         {program} cb <level 1-10> <input> <output>             Compress with BWT pre-pass\n  \
          {program} cp <level 1-10> <block_kb> <input> <output>  Compress in parallel\n  \
          {program} dp <input> <output>                          Decompress parallel stream\n  \
          {program} info <input>                                 Show .bmrc header info\n"
@@ -95,6 +96,45 @@ fn main() -> ExitCode {
                 "{} -> {} bytes in {:.2?}",
                 data.len(),
                 decompressed.len(),
+                elapsed
+            );
+            ExitCode::SUCCESS
+        }
+        "cb" if args.len() == 5 => {
+            let level: u8 = match args[2].parse() {
+                Ok(l) => l,
+                Err(_) => {
+                    eprintln!("invalid level '{}': expected a number 1-10", args[2]);
+                    return ExitCode::FAILURE;
+                }
+            };
+            let data = match fs::read(&args[3]) {
+                Ok(d) => d,
+                Err(e) => {
+                    eprintln!("error reading '{}': {e}", args[3]);
+                    return ExitCode::FAILURE;
+                }
+            };
+
+            let start = Instant::now();
+            let compressed = compress_bwt(&data, level);
+            let elapsed = start.elapsed();
+
+            if let Err(e) = fs::write(&args[4], &compressed) {
+                eprintln!("error writing '{}': {e}", args[4]);
+                return ExitCode::FAILURE;
+            }
+
+            let ratio = if data.is_empty() {
+                0.0
+            } else {
+                compressed.len() as f64 / data.len() as f64
+            };
+            println!(
+                "level {level} (BWT): {} -> {} bytes ({:.2}%) in {:.2?}",
+                data.len(),
+                compressed.len(),
+                ratio * 100.0,
                 elapsed
             );
             ExitCode::SUCCESS
